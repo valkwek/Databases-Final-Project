@@ -2,6 +2,7 @@ package godb
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"os"
 	"strconv"
@@ -16,7 +17,10 @@ type HeapFile struct {
 	// TODO: some code goes here
 	// HeapFile should include the fields below;  you may want to add
 	// additional fields
-	bufPool *BufferPool
+	bufPool     *BufferPool
+	backingFile string
+	Desc        TupleDesc
+	numPages    int
 }
 
 // Create a HeapFile.
@@ -27,19 +31,34 @@ type HeapFile struct {
 // May return an error if the file cannot be opened or created.
 func NewHeapFile(fromFile string, td *TupleDesc, bp *BufferPool) (*HeapFile, error) {
 	// TODO: some code goes here
-	return &HeapFile{}, fmt.Errorf("NewHeapFile not implemented") //replace me
+	file, err := os.OpenFile(fromFile, os.O_RDWR|os.O_CREATE, 0666)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	heapFileSize, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	fileSize := heapFileSize.Size()
+	return &HeapFile{
+		bufPool:     bp,
+		backingFile: fromFile,
+		Desc:        *td,
+		numPages:    int(fileSize) / PageSize,
+	}, nil
 }
 
 // Return the name of the backing file
 func (f *HeapFile) BackingFile() string {
 	// TODO: some code goes here
-	return "" //replace me
+	return f.backingFile
 }
 
 // Return the number of pages in the heap file
 func (f *HeapFile) NumPages() int {
 	// TODO: some code goes here
-	return 0 //replace me
+	return f.numPages
 }
 
 // Load the contents of a heap file from a specified CSV file.  Parameters are as follows:
@@ -110,7 +129,31 @@ func (f *HeapFile) LoadFromCSV(file *os.File, hasHeader bool, sep string, skipLa
 // using the [heapPage.initFromBuffer] method.
 func (f *HeapFile) readPage(pageNo int) (Page, error) {
 	// TODO: some code goes here
-	return nil, fmt.Errorf("readPage not implemented")
+
+	file, err := os.OpenFile(f.backingFile, os.O_RDWR, 0644)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	offset := int64(pageNo * PageSize)
+
+	buf := make([]byte, PageSize)
+
+	_, err = file.ReadAt(buf, offset)
+	if err != nil {
+		return nil, err
+	}
+
+	heapPage, err := newHeapPage(&f.Desc, pageNo, f)
+	if err != nil {
+		return nil, err
+	}
+	err = heapPage.initFromBuffer(bytes.NewBuffer(buf))
+	if err != nil {
+		return nil, err
+	}
+	return heapPage, nil
 }
 
 // Add the tuple to the HeapFile. This method should search through pages in the
@@ -129,7 +172,37 @@ func (f *HeapFile) readPage(pageNo int) (Page, error) {
 // The page the tuple is inserted into should be marked as dirty.
 func (f *HeapFile) insertTuple(t *Tuple, tid TransactionID) error {
 	// TODO: some code goes here
-	return fmt.Errorf("insertTuple not implemented") //replace me
+	for pageNo := 0; pageNo < f.NumPages(); pageNo++ {
+		page, err := f.bufPool.GetPage(f, pageNo, tid, WritePerm)
+
+		if err != nil {
+			return err
+		}
+
+		heapPage, ok := page.(*heapPage)
+		if !ok {
+			return fmt.Errorf("page %d is not a heapPage", pageNo)
+		}
+
+		if _, err := heapPage.insertTuple(t); err == nil {
+			heapPage.setDirty(tid, true)
+			return nil
+		}
+	}
+	newPageNo := f.NumPages()
+	newHeapPage, err := newHeapPage(&t.Desc, newPageNo, f)
+	f.numPages += 1
+	if err != nil {
+		return err
+	}
+
+	f.flushPage(newHeapPage)
+	if _, err := newHeapPage.insertTuple(t); err != nil {
+		return err
+	}
+
+	f.bufPool.pages[f.pageKey(newPageNo)] = newHeapPage
+	return nil
 }
 
 // Remove the provided tuple from the HeapFile.
@@ -143,7 +216,18 @@ func (f *HeapFile) insertTuple(t *Tuple, tid TransactionID) error {
 // The page the tuple is deleted from should be marked as dirty.
 func (f *HeapFile) deleteTuple(t *Tuple, tid TransactionID) error {
 	// TODO: some code goes here
-	return fmt.Errorf("deleteTuple not implemented") //replace me
+	pg, err := f.bufPool.GetPage(f, t.Rid.GetPageNumber(), tid, WritePerm)
+	if err != nil {
+		return err
+	}
+	if hp, ok := pg.(*heapPage); ok {
+		hp.setDirty(tid, true)
+		err := hp.deleteTuple(t.Rid)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Method to force the specified page back to the backing file at the
@@ -153,15 +237,37 @@ func (f *HeapFile) deleteTuple(t *Tuple, tid TransactionID) error {
 // where to write it back.
 func (f *HeapFile) flushPage(p Page) error {
 	// TODO: some code goes here
-	return fmt.Errorf("flushPage not implemented") //replace me
+	heapPg, ok := p.(*heapPage)
+	if !ok {
+		return fmt.Errorf("not heapPage")
+	}
+
+	buffer, err := heapPg.toBuffer()
+	if err != nil {
+		return err
+	}
+
+	file, err := os.OpenFile(f.backingFile, os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	offset := int64(heapPg.getPageNo() * PageSize)
+
+	_, err = file.WriteAt(buffer.Bytes(), offset)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // [Operator] descriptor method -- return the TupleDesc for this HeapFile
 // Supplied as argument to NewHeapFile.
 func (f *HeapFile) Descriptor() *TupleDesc {
 	// TODO: some code goes here
-	return nil //replace me
-
+	return &f.Desc
 }
 
 // [Operator] iterator method
@@ -174,8 +280,33 @@ func (f *HeapFile) Descriptor() *TupleDesc {
 // set appropriate so that [deleteTuple] will work (see additional comments there).
 func (f *HeapFile) Iterator(tid TransactionID) (func() (*Tuple, error), error) {
 	// TODO: some code goes here
+	pgIndex := 0
+	var childIter func() (*Tuple, error)
+
 	return func() (*Tuple, error) {
-	return nil, fmt.Errorf("heap_file.Iterator not implemented")
+		for pgIndex < f.numPages {
+			if childIter == nil {
+				page, err := f.bufPool.GetPage(f, pgIndex, tid, ReadPerm)
+				if err != nil {
+					return nil, err
+				}
+				childIter = page.(*heapPage).tupleIter() // Set the iterator for the current page
+			}
+
+			tuple, err := childIter()
+			if err != nil {
+				return nil, err
+			}
+
+			if tuple != nil {
+				return tuple, nil
+			}
+
+			pgIndex++
+			childIter = nil
+		}
+
+		return nil, nil
 	}, nil
 }
 
@@ -191,5 +322,8 @@ type heapHash struct {
 // does not contain a slice or a map that uniquely identifies the page.
 func (f *HeapFile) pageKey(pgNo int) any {
 	// TODO: some code goes here
-	return nil
+	return heapHash{
+		FileName: f.backingFile,
+		PageNo:   pgNo,
+	}
 }

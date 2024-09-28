@@ -19,11 +19,20 @@ const (
 
 type BufferPool struct {
 	// TODO: some code goes here
+	pages    map[any]Page
+	keyOrder []any
+	numPages int
+	currPage int
 }
 
 // Create a new BufferPool with the specified number of pages
 func NewBufferPool(numPages int) (*BufferPool, error) {
-	return &BufferPool{}, fmt.Errorf("NewBufferPool not implemented")
+	return &BufferPool{
+		pages:    make(map[any]Page),
+		keyOrder: []any{},
+		numPages: numPages,
+		currPage: 0,
+	}, nil
 }
 
 // Testing method -- iterate through all pages in the buffer pool
@@ -31,6 +40,14 @@ func NewBufferPool(numPages int) (*BufferPool, error) {
 // Mark pages as not dirty after flushing them.
 func (bp *BufferPool) FlushAllPages() {
 	// TODO: some code goes here
+	for _, page := range bp.pages {
+		dbfile := page.getFile()
+		dbfile.(*HeapFile).flushPage(page)
+		page.setDirty(0, false)
+	}
+	bp.pages = make(map[any]Page)
+	bp.keyOrder = []any{}
+	bp.currPage = 0
 }
 
 // Abort the transaction, releasing locks. Because GoDB is FORCE/NO STEAL, none
@@ -69,5 +86,41 @@ func (bp *BufferPool) BeginTransaction(tid TransactionID) error {
 // implement locking or deadlock detection. You will likely want to store a list
 // of pages in the BufferPool in a map keyed by the [DBFile.pageKey].
 func (bp *BufferPool) GetPage(file DBFile, pageNo int, tid TransactionID, perm RWPerm) (Page, error) {
-	return nil, fmt.Errorf("GetPage not implemented")
+	numDirty := 0
+	for _, page := range bp.pages {
+		if page.isDirty() {
+			numDirty += 1
+		}
+	}
+	if numDirty-1 == bp.numPages {
+		return nil, fmt.Errorf("buffer is full of dirty pages")
+	}
+
+	pageKey := file.pageKey(pageNo)
+
+	page, inBuffer := bp.pages[pageKey]
+	if inBuffer {
+		return page, nil
+	}
+
+	page, err := file.readPage(pageNo)
+	if err != nil {
+		return nil, fmt.Errorf("could not read page")
+	}
+	if bp.currPage == bp.numPages {
+		for i, pageKey := range bp.keyOrder {
+			if !bp.pages[pageKey].isDirty() {
+				bp.keyOrder = append(bp.keyOrder[:i], bp.keyOrder[i+1:]...)
+				bp.currPage--
+				break
+			}
+		}
+		if bp.currPage == bp.numPages {
+			return nil, fmt.Errorf("buffer is full of dirty pages")
+		}
+	}
+	bp.pages[pageKey] = page
+	bp.keyOrder = append(bp.keyOrder, file.(*HeapFile).pageKey(pageNo))
+	bp.currPage++
+	return page, nil
 }
