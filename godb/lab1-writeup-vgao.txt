@@ -1,0 +1,33 @@
+Collaborators: Valerie Kwek
+
+Design decisions:
+
+One design decision we made was storing the slot number of empty slots for each page in an array that's an 
+attribute of HeapPage. When we insert a new tuple, we insert it into the slot number at the end of empty slots
+array so that we just have to pop last element from empty slots array. When deleting a tuple, we add the 
+slot number in the tuple's Rid back to the empty slots array.
+
+In buffer pool, the BufferPool struct has the following attributes:
+- pages: map each page key (outputted by heap_file's pageKey function) to a 
+Page (implemented by heapPage struct)
+- numPages: maximum number of pages we can store in the buffer
+- currPage: number of pages that are currently in the buffer
+
+For heap_page, we maintained the number of used slots in numUsed int attribute of heapPage struct, 
+which we incremented when we added a new tuple and decremented when we deleted a tuple. 
+We store a page's tuples in an array and delete a tuple by setting an index of the page's tuples array to nil.
+When we insert a new tuple in a page, we iterate from the beginning (index = 0) to the end 
+(index = page.numSlots, exclusive) of the page's tuples array and put the tuple in the 
+first empty slot (i.e., tuples[<index>] = nil).
+For serializing and deserializing heap page, we store numSlots, numUsed, and tuples in the buffer as suggested
+in the instructions.
+
+For heap files, we maintained the number of pages currently in heap file in HeapFile struct's numPages attribute.
+
+Changes to API: not much; we just added attributes to structs and didn't change interface definitions in types.go
+
+Missing/incomplete parts of code:
+- In buffer pool, we haven't implemented AbortTransaction, CommitTransaction, nor BeginTransaction nor dealt
+with locking.
+
+Time Spent on the lab: 20+ hrs
