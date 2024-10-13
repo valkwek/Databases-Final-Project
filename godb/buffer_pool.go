@@ -20,6 +20,7 @@ const (
 type BufferPool struct {
 	// TODO: some code goes here
 	pages    map[any]Page
+	keyOrder []any
 	numPages int
 	currPage int
 }
@@ -28,6 +29,7 @@ type BufferPool struct {
 func NewBufferPool(numPages int) (*BufferPool, error) {
 	return &BufferPool{
 		pages:    make(map[any]Page),
+		keyOrder: []any{},
 		numPages: numPages,
 		currPage: 0,
 	}, nil
@@ -44,6 +46,7 @@ func (bp *BufferPool) FlushAllPages() {
 		page.setDirty(0, false)
 	}
 	bp.pages = make(map[any]Page)
+	bp.keyOrder = []any{}
 	bp.currPage = 0
 }
 
@@ -105,8 +108,9 @@ func (bp *BufferPool) GetPage(file DBFile, pageNo int, tid TransactionID, perm R
 		return nil, fmt.Errorf("could not read page")
 	}
 	if bp.currPage == bp.numPages {
-		for _, page := range bp.pages {
-			if !page.isDirty() {
+		for i, pageKey := range bp.keyOrder {
+			if !bp.pages[pageKey].isDirty() {
+				bp.keyOrder = append(bp.keyOrder[:i], bp.keyOrder[i+1:]...)
 				bp.currPage--
 				break
 			}
@@ -116,6 +120,7 @@ func (bp *BufferPool) GetPage(file DBFile, pageNo int, tid TransactionID, perm R
 		}
 	}
 	bp.pages[pageKey] = page
+	bp.keyOrder = append(bp.keyOrder, file.(*HeapFile).pageKey(pageNo))
 	bp.currPage++
 	return page, nil
 }
