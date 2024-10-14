@@ -8,6 +8,7 @@ type Project struct {
 	child        Operator
 	// You may want to add additional fields here
 	// TODO: some code goes here
+	distinct bool
 }
 
 // Construct a projection operator. It saves the list of selected field, child,
@@ -18,7 +19,10 @@ type Project struct {
 // and child is the child operator.
 func NewProjectOp(selectFields []Expr, outputNames []string, distinct bool, child Operator) (Operator, error) {
 	// TODO: some code goes here
-	return nil, fmt.Errorf("NewProjectOp not implemented.") // replace me
+	if len(selectFields) != len(outputNames) {
+		return nil, fmt.Errorf("selectFields is a list of expressions that represents the fields to be selected, outputNames are names by which the selected fields are named (should be same length as selectFields; throws error if not)")
+	}
+	return &Project{selectFields, outputNames, child, distinct}, nil // replace me
 }
 
 // Return a TupleDescriptor for this projection. The returned descriptor should
@@ -28,8 +32,11 @@ func NewProjectOp(selectFields []Expr, outputNames []string, distinct bool, chil
 // HINT: you can use expr.GetExprType() to get the field type
 func (p *Project) Descriptor() *TupleDesc {
 	// TODO: some code goes here
-	return &TupleDesc{} // replace me
-
+	fields := make([]FieldType, len(p.selectFields))
+	for i, expr := range p.selectFields {
+		fields[i] = FieldType{Fname: p.outputNames[i], Ftype: expr.GetExprType().Ftype}
+	}
+	return &TupleDesc{Fields: fields} // replace me
 }
 
 // Project operator implementation. This function should iterate over the
@@ -40,5 +47,33 @@ func (p *Project) Descriptor() *TupleDesc {
 // optional as specified in the lab 2 assignment.
 func (p *Project) Iterator(tid TransactionID) (func() (*Tuple, error), error) {
 	// TODO: some code goes here
-	return nil, fmt.Errorf("Project.Iterator not implemented") // replace me
+	childIter, err := p.child.Iterator(tid)
+	if err != nil {
+		return nil, err
+	}
+	distinctTuples := make(map[string]bool)
+	return func() (*Tuple, error) {
+		for {
+			tuple, err := childIter()
+			if err != nil {
+				return nil, err
+			}
+			if tuple == nil {
+				return nil, nil
+			}
+			projectedFields := make([]DBValue, len(p.outputNames))
+			for i, expr := range p.selectFields {
+				projectedFieldValue, err := expr.EvalExpr(tuple)
+				if err != nil {
+					return nil, err
+				}
+				projectedFields[i] = projectedFieldValue
+			}
+			projectedTuple := &Tuple{Desc: *p.Descriptor(), Fields: projectedFields, Rid: tuple.Rid}
+			if _, notDistinct := distinctTuples[projectedTuple.PrettyPrintString(false)]; !notDistinct {
+				distinctTuples[projectedTuple.PrettyPrintString(false)] = true
+				return projectedTuple, nil // replace me
+			}
+		}
+	}, nil
 }

@@ -1,9 +1,5 @@
 package godb
 
-import (
-"fmt"
-)
-
 type Aggregator struct {
 	// Expressions that when applied to tuples from the child operators,
 	// respectively, return the value of the group by key tuple
@@ -48,7 +44,15 @@ func NewAggregator(emptyAggState []AggState, child Operator) *Aggregator {
 // HINT: use [TupleDesc.merge] to merge the two [TupleDesc]s.
 func (a *Aggregator) Descriptor() *TupleDesc {
 	// TODO: some code goes here
-	return &TupleDesc{} //replace me
+	noGroupBy := &TupleDesc{}
+	for _, aggState := range a.newAggState {
+		noGroupBy = noGroupBy.merge(aggState.GetTupleDesc())
+	}
+	groupBy := &TupleDesc{}
+	for _, expr := range a.groupByFields {
+		groupBy.Fields = append(groupBy.Fields, expr.GetExprType())
+	}
+	return groupBy.merge(noGroupBy) //replace me
 }
 
 // Returns an iterator over the results of the aggregate. The aggregate should
@@ -143,7 +147,20 @@ func (a *Aggregator) Iterator(tid TransactionID) (func() (*Tuple, error), error)
 // If there is any error during expression evaluation, return the error.
 func extractGroupByKeyTuple(a *Aggregator, t *Tuple) (*Tuple, error) {
 	// TODO: some code goes here
-	return &Tuple{}, fmt.Errorf("extractGroupByKeyTuple not implemented.") // replace me
+	var fields []DBValue
+	for _, expr := range a.groupByFields {
+		value, err := expr.EvalExpr(t)
+		if err != nil {
+			return nil, err
+		}
+		fields = append(fields, value)
+	}
+	groupByKeyTuple := &Tuple{
+		Desc:   t.Desc,
+		Fields: fields,
+		Rid:    t.Rid,
+	}
+	return groupByKeyTuple, nil // replace me
 }
 
 // Given a tuple t from child and (a pointer to) the array of partially computed
@@ -154,6 +171,13 @@ func extractGroupByKeyTuple(a *Aggregator, t *Tuple) (*Tuple, error) {
 // field and add the new aggState to grpAggState.
 func addTupleToGrpAggState(a *Aggregator, t *Tuple, grpAggState *[]AggState) {
 	// TODO: some code goes here
+	for i := 0; i < len(*grpAggState); i++ {
+		if (*grpAggState)[i] == nil {
+			newAggState := a.newAggState[i].Copy()
+			(*grpAggState)[i] = newAggState
+		}
+		(*grpAggState)[i].AddTuple(t)
+	}
 }
 
 // Given that all child tuples have been added, return an iterator that iterates
@@ -166,8 +190,24 @@ func addTupleToGrpAggState(a *Aggregator, t *Tuple, grpAggState *[]AggState) {
 // tuples using the joinTuples function in tuple.go you wrote in lab 1.
 func getFinalizedTuplesIterator(a *Aggregator, groupByList []*Tuple, aggState map[any]*[]AggState) func() (*Tuple, error) {
 	// TODO: some code goes here
+	curr := len(groupByList) - 1
 	return func() (*Tuple, error) {
 		// TODO: some code goes here
-		return nil, fmt.Errorf("getFinalizedTuplesIterator not implemented.") // replace me
+		if curr < 0 {
+			return nil, nil
+		}
+		group := groupByList[curr]
+		aggTuple, _ := extractGroupByKeyTuple(a, group)
+		groupAggStates := aggState[aggTuple.tupleKey()]
+		if groupAggStates != nil {
+			for _, state := range *groupAggStates {
+				aggStateTuple := state.Finalize()
+				aggTuple = joinTuples(aggTuple, aggStateTuple)
+			}
+			curr -= 1
+			aggTuple.Desc = *a.Descriptor()
+			return aggTuple, nil // replace me
+		}
+		return nil, nil
 	}
 }

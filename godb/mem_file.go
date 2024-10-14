@@ -29,17 +29,21 @@ func (mf *MemFile) NumPages() int {
 func (mf *MemFile) insertTuple(t *Tuple, tid TransactionID) error {
 	for i := range mf.pages {
 		if mf.pages[i] == nil {
-			t.Rid = i
+			t.Rid = HeapRecordID{
+				PageNumber: i,
+			}
 			mf.pages[i] = &MemPage{file: mf, tuple: *t}
 		}
 	}
-	t.Rid = len(mf.pages)
+	t.Rid = HeapRecordID{
+		PageNumber: len(mf.pages),
+	}
 	mf.pages = append(mf.pages, &MemPage{file: mf, tuple: *t})
 	return nil
 }
 
 func (mf *MemFile) deleteTuple(t *Tuple, tid TransactionID) error {
-	mf.pages[t.Rid.(int)] = nil
+	mf.pages[t.Rid.GetSlotNumber()] = nil
 	return nil
 }
 
