@@ -1,10 +1,5 @@
 package godb
 
-// import (
-// 	"fmt"
-// 	"go/types"
-// )
-
 type Filter struct {
 	op    BoolOp
 	left  Expr
@@ -29,30 +24,35 @@ func (f *Filter) Descriptor() *TupleDesc {
 // HINT: you can use [types.evalPred] to compare two values.
 func (f *Filter) Iterator(tid TransactionID) (func() (*Tuple, error), error) {
 	// TODO: some code goes here
-	childIter, err := f.child.Iterator(tid)
+	childIteratorFunc, err := f.child.Iterator(tid)
 	if err != nil {
 		return nil, err
 	}
+
 	return func() (*Tuple, error) {
 		for {
-			tuple, err := childIter()
+			tuple, err := childIteratorFunc()
 			if err != nil {
 				return nil, err
 			}
+
 			if tuple == nil {
 				return nil, nil
 			}
-			leftFieldVal, err := f.left.EvalExpr(tuple)
+
+			leftVal, err := f.left.EvalExpr(tuple)
 			if err != nil {
 				return nil, err
 			}
-			rightFieldVal, err := f.right.EvalExpr(tuple)
+
+			rightVal, err := f.right.EvalExpr(tuple)
 			if err != nil {
 				return nil, err
 			}
-			if leftFieldVal.EvalPred(rightFieldVal, f.op) {
+
+			if leftVal.EvalPred(rightVal, f.op) {
 				return tuple, nil
 			}
 		}
-	}, nil // replace me
+	}, nil
 }

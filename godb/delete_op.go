@@ -10,7 +10,7 @@ type DeleteOp struct {
 // child Operator from the specified DBFile.
 func NewDeleteOp(deleteFile DBFile, child Operator) *DeleteOp {
 	// TODO: some code goes here
-	return &DeleteOp{deleteFile, child} // replace me
+	return &DeleteOp{deleteFile: deleteFile, child: child}
 }
 
 // The delete TupleDesc is a one column descriptor with an integer field named
@@ -18,8 +18,10 @@ func NewDeleteOp(deleteFile DBFile, child Operator) *DeleteOp {
 func (i *DeleteOp) Descriptor() *TupleDesc {
 	// TODO: some code goes here
 	return &TupleDesc{
-		Fields: []FieldType{{Fname: "count", Ftype: IntType}},
-	} // replace me
+		Fields: []FieldType{
+			{Fname: "count", Ftype: IntType},
+		},
+	}
 }
 
 // Return an iterator that deletes all of the tuples from the child iterator
@@ -28,31 +30,31 @@ func (i *DeleteOp) Descriptor() *TupleDesc {
 // Tuples should be deleted using the [DBFile.deleteTuple] method.
 func (dop *DeleteOp) Iterator(tid TransactionID) (func() (*Tuple, error), error) {
 	// TODO: some code goes here
-	childIter, err := dop.child.Iterator(tid)
-	if err != nil {
-		return nil, err
-	}
-	insertions := int64(0)
+	deletions := int64(0)
 	return func() (*Tuple, error) {
+		childIterator, err := dop.child.Iterator(tid)
+		if err != nil {
+			return nil, err
+		}
+
 		for {
-			tuple, err := childIter()
+			tuple, err := childIterator()
 			if err != nil {
 				return nil, err
 			}
+
 			if tuple == nil {
 				break
 			}
-			err = dop.deleteFile.deleteTuple(tuple, tid)
-			if err != nil {
-				return nil, err
-			}
-			insertions++
+
+			dop.deleteFile.deleteTuple(tuple, tid)
+			deletions += 1
 		}
 		return &Tuple{
 			Desc: *dop.Descriptor(),
 			Fields: []DBValue{
-				IntField{insertions},
+				IntField{deletions},
 			},
 		}, nil
-	}, nil // replace me
+	}, nil
 }

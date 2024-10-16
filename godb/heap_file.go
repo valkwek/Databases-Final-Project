@@ -216,13 +216,13 @@ func (f *HeapFile) insertTuple(t *Tuple, tid TransactionID) error {
 // The page the tuple is deleted from should be marked as dirty.
 func (f *HeapFile) deleteTuple(t *Tuple, tid TransactionID) error {
 	// TODO: some code goes here
-	pg, err := f.bufPool.GetPage(f, t.Rid.GetPageNumber(), tid, WritePerm)
+	pg, err := f.bufPool.GetPage(f, t.Rid.(HeapRecordID).GetPageNumber(), tid, WritePerm)
 	if err != nil {
 		return err
 	}
 	if hp, ok := pg.(*heapPage); ok {
 		hp.setDirty(tid, true)
-		err := hp.deleteTuple(t.Rid)
+		err := hp.deleteTuple(t.Rid.(recordID))
 		if err != nil {
 			return err
 		}

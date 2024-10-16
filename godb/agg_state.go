@@ -70,7 +70,7 @@ type SumAggState struct {
 
 func (a *SumAggState) Copy() AggState {
 	// TODO: some code goes here
-	return &SumAggState{a.alias, a.expr, a.sum} // replace me
+	return &SumAggState{a.alias, a.expr, a.sum}
 }
 
 func intAggGetter(v DBValue) any {
@@ -122,7 +122,7 @@ func (a *SumAggState) GetTupleDesc() *TupleDesc {
 	fts := []FieldType{ft}
 	td := TupleDesc{}
 	td.Fields = fts
-	return &td // replace me
+	return &td
 }
 
 func (a *SumAggState) Finalize() *Tuple {
@@ -134,7 +134,7 @@ func (a *SumAggState) Finalize() *Tuple {
 	} else {
 		f = StringField{a.sum.(string)}
 	}
-	return &Tuple{*td, []DBValue{f}, nil} // replace me
+	return &Tuple{*td, []DBValue{f}, nil}
 }
 
 // Implements the aggregation state for AVG
@@ -142,32 +142,32 @@ func (a *SumAggState) Finalize() *Tuple {
 // so no worries for divide-by-zero
 type AvgAggState struct {
 	// TODO: some code goes here
-	alias string
-	expr  Expr
-	total int64
-	size  int64
+	alias     string
+	expr      Expr
+	sumOfVals int64
+	numVals   int64
 }
 
 func (a *AvgAggState) Copy() AggState {
 	// TODO: some code goes here
-	return &AvgAggState{a.alias, a.expr, a.total, a.size} // replace me
+	return &AvgAggState{a.alias, a.expr, 0, 0}
 }
 
 func (a *AvgAggState) Init(alias string, expr Expr) error {
 	// TODO: some code goes here
-	a.total = 0
-	a.size = 0
-	a.expr = expr
 	a.alias = alias
-	return nil // replace me
+	a.expr = expr
+	a.numVals = 0
+	a.sumOfVals = 0
+	return nil
 }
 
 func (a *AvgAggState) AddTuple(t *Tuple) {
 	// TODO: some code goes here
-	dbVal, err := a.expr.EvalExpr(t)
-	if err == nil {
-		a.total += dbVal.(IntField).Value
-		a.size += 1
+	dbVal, _ := a.expr.EvalExpr(t)
+	if intAggGetter(dbVal) != nil {
+		a.sumOfVals += intAggGetter(dbVal).(int64)
+		a.numVals += 1
 	}
 }
 
@@ -177,14 +177,14 @@ func (a *AvgAggState) GetTupleDesc() *TupleDesc {
 	fts := []FieldType{ft}
 	td := TupleDesc{}
 	td.Fields = fts
-	return &td // replace me
+	return &td
 }
 
 func (a *AvgAggState) Finalize() *Tuple {
 	// TODO: some code goes here
 	td := a.GetTupleDesc()
-	f := IntField{a.total / a.size}
-	return &Tuple{*td, []DBValue{f}, nil} // replace me
+	avg := IntField{a.sumOfVals / a.numVals}
+	return &Tuple{*td, []DBValue{avg}, nil}
 }
 
 // Implements the aggregation state for MAX
@@ -192,65 +192,51 @@ func (a *AvgAggState) Finalize() *Tuple {
 // so no worries for NaN max
 type MaxAggState struct {
 	// TODO: some code goes here
-	alias string
-	expr  Expr
-	max   any
+	alias  string
+	expr   Expr
+	maxVal DBValue
 }
 
 func (a *MaxAggState) Copy() AggState {
 	// TODO: some code goes here
-	return &MaxAggState{a.alias, a.expr, a.max} // replace me
+	return &MaxAggState{a.alias, a.expr, a.maxVal}
 }
 
 func (a *MaxAggState) Init(alias string, expr Expr) error {
 	// TODO: some code goes here
-	a.max = nil
-	a.expr = expr
 	a.alias = alias
-	return nil // replace me
+	a.expr = expr
+	return nil
 }
 
 func (a *MaxAggState) AddTuple(t *Tuple) {
 	// TODO: some code goes here
 	dbVal, _ := a.expr.EvalExpr(t)
-	intValue := intAggGetter(dbVal)
-	if intValue != nil {
-		if a.max == nil {
-			a.max = intValue.(int64)
-		}
-		if a.max.(int64) < intValue.(int64) {
-			a.max = intValue.(int64)
-		}
-	} else {
-		strValue := stringAggGetter(dbVal).(string)
-		if a.max == nil {
-			a.max = strValue
-		}
-		if a.max.(string) < strValue {
-			a.max = strValue
-		}
+	if a.maxVal == nil {
+		a.maxVal = dbVal
+	} else if dbVal.EvalPred(a.maxVal, OpGt) {
+		a.maxVal = dbVal
 	}
 }
 
 func (a *MaxAggState) GetTupleDesc() *TupleDesc {
 	// TODO: some code goes here
-	ft := FieldType{a.alias, "", IntType}
+	var ft FieldType
+	if intAggGetter(a.maxVal) != nil {
+		ft = FieldType{a.alias, "", StringType}
+	} else {
+		ft = FieldType{a.alias, "", IntType}
+	}
 	fts := []FieldType{ft}
 	td := TupleDesc{}
 	td.Fields = fts
-	return &td // replace me
+	return &td
 }
 
 func (a *MaxAggState) Finalize() *Tuple {
 	// TODO: some code goes here
 	td := a.GetTupleDesc()
-	var f DBValue
-	if intValue, ok := a.max.(int64); ok {
-		f = IntField{intValue}
-	} else {
-		f = StringField{a.max.(string)}
-	}
-	return &Tuple{*td, []DBValue{f}, nil} // replace me
+	return &Tuple{*td, []DBValue{a.maxVal}, nil}
 }
 
 // Implements the aggregation state for MIN
@@ -258,63 +244,49 @@ func (a *MaxAggState) Finalize() *Tuple {
 // so no worries for NaN min
 type MinAggState struct {
 	// TODO: some code goes here
-	alias string
-	expr  Expr
-	min   any
+	alias  string
+	expr   Expr
+	minVal DBValue
 }
 
 func (a *MinAggState) Copy() AggState {
 	// TODO: some code goes here
-	return &MinAggState{a.alias, a.expr, a.min} // replace me
+	return &MinAggState{a.alias, a.expr, a.minVal}
 }
 
 func (a *MinAggState) Init(alias string, expr Expr) error {
 	// TODO: some code goes here
-	a.min = nil
-	a.expr = expr
 	a.alias = alias
-	return nil // replace me
+	a.expr = expr
+	return nil
 }
 
 func (a *MinAggState) AddTuple(t *Tuple) {
 	// TODO: some code goes here
 	dbVal, _ := a.expr.EvalExpr(t)
-	intValue := intAggGetter(dbVal)
-	if intValue != nil {
-		if a.min == nil {
-			a.min = intValue.(int64)
-		}
-		if a.min.(int64) > intValue.(int64) {
-			a.min = intValue.(int64)
-		}
-	} else {
-		strValue := stringAggGetter(dbVal).(string)
-		if a.min == nil {
-			a.min = strValue
-		}
-		if a.min.(string) > strValue {
-			a.min = strValue
-		}
+	if a.minVal == nil {
+		a.minVal = dbVal
+	} else if dbVal.EvalPred(a.minVal, OpLt) {
+		a.minVal = dbVal
 	}
 }
 
 func (a *MinAggState) GetTupleDesc() *TupleDesc {
 	// TODO: some code goes here
-	ft := FieldType{a.alias, "", IntType}
+	var ft FieldType
+	if intAggGetter(a.minVal) != nil {
+		ft = FieldType{a.alias, "", StringType}
+	} else {
+		ft = FieldType{a.alias, "", IntType}
+	}
 	fts := []FieldType{ft}
 	td := TupleDesc{}
 	td.Fields = fts
-	return &td // replace me
+	return &td
 }
 
 func (a *MinAggState) Finalize() *Tuple {
 	// TODO: some code goes here
 	td := a.GetTupleDesc()
-	var f DBValue
-	if intValue, ok := a.min.(int64); ok {
-		f = IntField{intValue}
-	} else {
-		f = StringField{a.min.(string)}
-	}
-	return &Tuple{*td, []DBValue{f}, nil} // replace me
+	return &Tuple{*td, []DBValue{a.minVal}, nil}
 }

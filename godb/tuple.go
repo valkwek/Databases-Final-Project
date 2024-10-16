@@ -147,7 +147,7 @@ type StringField struct {
 type Tuple struct {
 	Desc   TupleDesc
 	Fields []DBValue
-	Rid    recordID //used to track the page and position this page was read from
+	Rid    any //used to track the page and position this page was read from
 }
 
 type recordID interface {

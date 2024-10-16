@@ -32,13 +32,13 @@ func (l *LimitOp) Iterator(tid TransactionID) (func() (*Tuple, error), error) {
 	if err != nil {
 		return nil, err
 	}
-	limit, _ := l.limitTups.EvalExpr(nil)
 	curr := int64(0)
 	return func() (*Tuple, error) {
+		tuple, err := childIter()
+		limit, _ := l.limitTups.EvalExpr(tuple)
 		if curr == limit.(IntField).Value {
 			return nil, nil
 		}
-		tuple, err := childIter()
 		if err != nil {
 			return nil, err
 		}

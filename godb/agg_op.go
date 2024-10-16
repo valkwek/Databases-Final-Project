@@ -156,7 +156,7 @@ func extractGroupByKeyTuple(a *Aggregator, t *Tuple) (*Tuple, error) {
 		fields = append(fields, value)
 	}
 	groupByKeyTuple := &Tuple{
-		Desc:   t.Desc,
+		Desc:   *a.Descriptor(),
 		Fields: fields,
 		Rid:    t.Rid,
 	}
@@ -206,7 +206,7 @@ func getFinalizedTuplesIterator(a *Aggregator, groupByList []*Tuple, aggState ma
 			}
 			curr -= 1
 			aggTuple.Desc = *a.Descriptor()
-			return aggTuple, nil // replace me
+			return aggTuple, nil
 		}
 		return nil, nil
 	}

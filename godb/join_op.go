@@ -25,7 +25,7 @@ func NewJoin(left Operator, leftField Expr, right Operator, rightField Expr, max
 // HINT: use [TupleDesc.merge].
 func (hj *EqualityJoin) Descriptor() *TupleDesc {
 	// TODO: some code goes here
-	return (*hj.left).Descriptor().merge((*hj.right).Descriptor()) // replace me
+	return (*hj.left).Descriptor().merge((*hj.right).Descriptor())
 }
 
 // Join operator implementation. This function should iterate over the results
@@ -47,39 +47,50 @@ func (hj *EqualityJoin) Descriptor() *TupleDesc {
 // loops join.
 func (joinOp *EqualityJoin) Iterator(tid TransactionID) (func() (*Tuple, error), error) {
 	// TODO: some code goes here
-	leftIter, err := (*joinOp.left).Iterator(tid)
+	leftIterator, err := (*joinOp.left).Iterator(tid)
 	if err != nil {
 		return nil, err
 	}
-	var rightIter func() (*Tuple, error)
-	var currLeft *Tuple
+
+	var rightIterator func() (*Tuple, error)
+	var leftTuple *Tuple
+
 	return func() (*Tuple, error) {
 		for {
-			if rightIter == nil {
-				currLeft, _ = leftIter()
-				if currLeft == nil {
+			if rightIterator == nil {
+				leftTuple, err = leftIterator()
+				if err != nil {
+					return nil, err
+				}
+
+				if leftTuple == nil {
 					return nil, nil
 				}
-				rightIter, _ = (*joinOp.right).Iterator(tid)
+
+				rightIterator, err = (*joinOp.right).Iterator(tid)
 			}
+
 			for {
-				currRight, _ := rightIter()
-				if currRight == nil {
-					rightIter = nil
+				rightTuple, err := rightIterator()
+				if rightTuple == nil {
+					rightIterator = nil
 					break
 				}
-				leftFieldVal, err := joinOp.leftField.EvalExpr(currLeft)
+
+				rightFieldExpr, err := joinOp.rightField.EvalExpr(rightTuple)
 				if err != nil {
 					return nil, err
 				}
-				rightFieldVal, err := joinOp.rightField.EvalExpr(currRight)
+
+				leftFieldExpr, err := joinOp.leftField.EvalExpr(leftTuple)
 				if err != nil {
 					return nil, err
 				}
-				if leftFieldVal == rightFieldVal {
-					return joinTuples(currLeft, currRight), nil
+
+				if leftFieldExpr.EvalPred(rightFieldExpr, OpEq) {
+					return joinTuples(leftTuple, rightTuple), nil
 				}
 			}
 		}
-	}, nil // replace me
+	}, nil
 }

@@ -10,14 +10,16 @@ type InsertOp struct {
 // into the specified DBFile.
 func NewInsertOp(insertFile DBFile, child Operator) *InsertOp {
 	// TODO: some code goes here
-	return &InsertOp{insertFile, child}
+	return &InsertOp{insertFile: insertFile, child: child}
 }
 
 // The insert TupleDesc is a one column descriptor with an integer field named "count"
 func (i *InsertOp) Descriptor() *TupleDesc {
 	// TODO: some code goes here
 	return &TupleDesc{
-		Fields: []FieldType{{Fname: "count", Ftype: IntType}},
+		Fields: []FieldType{
+			{Fname: "count", Ftype: IntType},
+		},
 	}
 }
 
@@ -28,30 +30,30 @@ func (i *InsertOp) Descriptor() *TupleDesc {
 // method.
 func (iop *InsertOp) Iterator(tid TransactionID) (func() (*Tuple, error), error) {
 	// TODO: some code goes here
-	childIter, err := iop.child.Iterator(tid)
-	if err != nil {
-		return nil, err
-	}
-	insertions := int64(0)
+	count := int64(0)
 	return func() (*Tuple, error) {
+		childIterator, err := iop.child.Iterator(tid)
+		if err != nil {
+			return nil, err
+		}
+
 		for {
-			tuple, err := childIter()
+			tuple, err := childIterator()
 			if err != nil {
 				return nil, err
 			}
+
 			if tuple == nil {
 				break
 			}
-			err = iop.insertFile.insertTuple(tuple, tid)
-			if err != nil {
-				return nil, err
-			}
-			insertions++
+
+			iop.insertFile.insertTuple(tuple, tid)
+			count += 1
 		}
 		return &Tuple{
 			Desc: *iop.Descriptor(),
 			Fields: []DBValue{
-				IntField{insertions},
+				IntField{count},
 			},
 		}, nil
 	}, nil
