@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // A HeapFile is an unordered collection of tuples.
@@ -21,6 +22,7 @@ type HeapFile struct {
 	backingFile string
 	Desc        TupleDesc
 	numPages    int
+	mutex       sync.Mutex
 }
 
 // Create a HeapFile.
@@ -172,6 +174,8 @@ func (f *HeapFile) readPage(pageNo int) (Page, error) {
 // The page the tuple is inserted into should be marked as dirty.
 func (f *HeapFile) insertTuple(t *Tuple, tid TransactionID) error {
 	// TODO: some code goes here
+	f.mutex.Lock()
+	defer f.mutex.Unlock()
 	for pageNo := 0; pageNo < f.NumPages(); pageNo++ {
 		page, err := f.bufPool.GetPage(f, pageNo, tid, WritePerm)
 
@@ -201,7 +205,28 @@ func (f *HeapFile) insertTuple(t *Tuple, tid TransactionID) error {
 		return err
 	}
 
+	f.bufPool.mutex.Lock()
+	defer f.bufPool.mutex.Unlock()
+	_, ok := f.bufPool.pages[f.pageKey(newPageNo)]
+	if len(f.bufPool.pages) > f.bufPool.numPages && !ok {
+		for _, page := range f.bufPool.pages {
+			if !page.isDirty() {
+				delete(f.bufPool.pages, page.getFile().pageKey(page.(*heapPage).PageNo))
+				break
+			}
+		}
+	}
 	f.bufPool.pages[f.pageKey(newPageNo)] = newHeapPage
+	_, exists := f.bufPool.pageMutexes[f.pageKey(newPageNo)]
+	if !exists {
+		f.bufPool.pageMutexes[f.pageKey(newPageNo)] = &pageLock{
+			sharedLocks:   0,
+			exclusiveLock: 1,
+			mutex:         sync.Mutex{},
+			permittedTids: []TransactionID{tid},
+		}
+	}
+	f.bufPool.dirtyPages[tid] = append(f.bufPool.dirtyPages[tid], f.pageKey(newPageNo))
 	return nil
 }
 
@@ -216,6 +241,8 @@ func (f *HeapFile) insertTuple(t *Tuple, tid TransactionID) error {
 // The page the tuple is deleted from should be marked as dirty.
 func (f *HeapFile) deleteTuple(t *Tuple, tid TransactionID) error {
 	// TODO: some code goes here
+	f.mutex.Lock()
+	defer f.mutex.Unlock()
 	pg, err := f.bufPool.GetPage(f, t.Rid.(HeapRecordID).GetPageNumber(), tid, WritePerm)
 	if err != nil {
 		return err

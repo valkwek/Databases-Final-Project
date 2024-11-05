@@ -1,0 +1,27 @@
+Victoria Gao (vgao)
+Collaborator: Valerie Kwek (valkwek)
+
+Describe any design decisions you made, including your choice of deadlock detection.
+For deadlock detection, we chose to implement cycle-detection in a dependency graph data structure whenever we attempt to grant a new lock. If a cycle exists, we chose to abort the transaction waiting for a lock instead of all the transactions that the current transaction t is waiting for because aborting all the transactions that t is waiting for may result in a large amount of work being undone. Aborting t gives the other transactions a chance to make progress and the user will only have to retry t, which could lead to a quicker resolution of the deadlock, as only the work of t needs to be undone instead of potentially many transactions.
+
+An alternative way of handling the deadlock is to use global orderings of transactions to avoid building the wait-for graph. While this alternative is sometimes preferred for performance reasons, some of its cons include (1) unnecessary transaction aborts (transactions that could have eventually completed successfully might be aborted due to a perceived deadlock that arises from the ordering policy), (2) unnecessary delays (transactions are forced to follow a particular order, even when there is no real conflict, which can lead to worse performance as the number of transactions grows), and (3) worse overhead (additional overhead from managing data structures like the transaction queue and methods for storing/comparing the property used to determine ordering (i.e., transaction timestamp/priority). In contrast, our approach of cycle detection in a dependency graph data structure can detect deadlocks more accurately and doesn't need to store/maintain ordering of transactions.
+
+Another approach is to implement a timeout policy that aborts a transaction if it has not been completed after a given period of time, but we didn't implement this because the instructions said our implementation should be better than a simple timeout on each transaction. Furthermore, some cons of the timeout policy include (1) unnecessary transaction aborts (transaction may be aborted even though it could have successfully completed if it had waited a little longer, wasted work) and (2) transaction starvation (a transaction is consistently timing out while other transactions continue to hold the locks or resources it needs). If the system isn't designed to handle fairness in lock allocation, a transaction consistently timing out while other transactions continue to hold the locks or resources it needs can be repeatedly aborted, leading to performance degradation and fairness issues.
+
+Discuss and justify any changes you made to the API.
+In buffer pool, we added the following attributes to the BufferPool struct:
+  - mutex: the buffer mutex; we used this mutex's lock and unlock methods to control access to buffer pool in GetPage and HeapFile's insertTuple method. In HeapFile's insertTuple method, we locked the buffer pool mutex and initialized the buffer pool's page lock for a new page we insert into the heap file.
+  - pageMutexes: a map with page keys as its keys and each page's lock as its values. Our pageLock data structure consists of sharedLocks (number of shared locks on the page), exclusiveLock (ID of the transaction with the exlusive lock on the page), mutex (page's mutex), and permittedTids (an array with the IDs of transactions with locks on the page)
+  - dirtyPages: a map with transaction IDs as its keys and arrays containing the page keys of pages that were last dirtied by the transaction as its values. This was used to know which page locks' state to update and which pages to discard when committing/aborting transactions.
+  - sharedPages: a map with transaction IDs as its keys and arrays containing the page keys of pages that the transaction had read permission shared lock on as its values. This was used to know which page locks' state to update when committing/aborting transactions.
+  - dependencyGraph: a map with transaction IDs as its keys and arrays containing the IDs of transactions that had a shared lock on the page that the transaction ID (a key of dependencyGraph map) wants to get write permission of as its values. This was used by a function that detects deadlocks (when there's a cycle in dependencyGraph)
+  - runningTransactions: an array containing the IDs of transactions that are actively running (began transaction but haven't committed/aborted transaction)
+
+In heap file, we added a mutex to the HeapFile struct, which we used to lock heap files in insertTuple and deleteTuple.
+
+Describe any missing or incomplete elements of your code.
+N/A, we completed all exercises and don't have any functions that aren't implemented.
+
+Describe how long you spent on the lab, and whether there was anything you found particularly difficult or confusing.
+12 hours
+We found debugging unit tests with race conditions and deadlocks to be challenging as it was hard to determine root cause and some unit test's code was hard to understand.

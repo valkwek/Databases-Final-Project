@@ -25,9 +25,6 @@ Note that you should NOT pass fileName into NewHeapFile -- fileName is a CSV
 file that you should call LoadFromCSV on.
 */
 func computeFieldSum(bp *BufferPool, fileName string, td TupleDesc, sumField string) (int, error) {
-	if _, err := os.Stat("temp"); err == nil {
-		os.Remove("temp")
-	}
 	heapFile, err := NewHeapFile("temp", &td, bp)
 	if err != nil {
 		return 0, err

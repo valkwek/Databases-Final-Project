@@ -1,0 +1,63 @@
+Collaborator: Victoria Gao
+
+Discuss and justify any changes you made to the API.
+
+We made a pageLock struct that includes the number of users sharing/reading from a page (sharedLocks), an exclusive lock 
+with the tid of a user writing to a page (exclusiveLock), a mutex for the page (mutex), and a list of transaction IDs for 
+permitted tids that can access a page (permittedTids). Using a pageLock struct allowed us to check whether a page could be 
+accessed in the GetPage method of buffer_pool, which depended on whether the permission was a ReadPerm (nobody has 
+exclusive lock or tid is among the permitted tids for that page) or a WritePerm (tid is among the permitted tids for that 
+page or nobody has exclusive lock and there are 0 users sharing the lock for the page). 
+
+We made changes to the BufferPool struct to include a mutex (mutex), a map mapping page keys to their respective pageLock
+(pageMutexes), a map mapping transaction IDs to page keys of pages that they dirtied (dirtyPages), a map mapping 
+transaction IDs to page keys of pages that they read from (sharedPages), a dependency graph that maps transaction IDs to a 
+list of transaction IDs they are dependent on, and a list of currently running transaction IDs (runningTransactions). The 
+buffer pool mutex was used in each of its functions, like AbortTransaction, CommitTransaction, and GetPage. The pageMutexes 
+map is used to update the list of tids that are allowed to access the page and control the exclusive and shared locks for 
+the page (in AbortTransaction and CommitTransaction, the exclusive lock is released or the shared lock removes the tid 
+that is being processed and the tid is removed from the list of permitted tids; in GetPage, the exclusive lock or the 
+shared lock is checked based on the permissions as described in the pageLock struct paragraph above and then held if it 
+is available). The dirtyPages map is updated in the GetPage method whenever a write action successfully gets an exclusive 
+lock. Upon aborting a transaction, we discard the dirty keys from the buffer so that these do not get flushed to disk; 
+upon commiting a transaction, we flush the dirty keys so that these do get saved to disk. The same reasoning follows for 
+the sharedPages map where it is updated in the GetPage method whenever a read action successfully gets a shared lock. Upon 
+aborting or commiting a transaction, we release the locks associated with the pages of the keys in the sharedPages map for 
+the specific tid; reads do not change the file contents, so there is no need for flushing. For both the dirtyPages map and 
+sharedPages map, we clear the keys associated with the tid at the end of AbortTransaction and CommitTransaction so other 
+threads can access these pages. The dependency graph dependencyGraph is used for checking if a transaction needs to be 
+aborted due to deadlock. If a GetPage call has a write permission, we add all the permitted tids for that page as 
+dependencies for the passed in tid; however, to prevent a cycle of 1 where the passed in tid immediately depends on itself, 
+we iterate through the permitted tids to exclude the passed in tid as an immediate dependency. This is then checked for 
+any cycles using a bfs search in the cycle function in buffer_pool. If there is a cycle, we need to abort the transaction 
+as it results in deadlock. Aborting the transaction removes the dependencies associated with the tid from dependencyGraph. 
+Finally, the runningTransactions list is used for the BeginTransaction function to check that the transaction is not 
+already running. 
+
+For heap_file, we had to modify the GetPage method because of all the new fields described above in the BufferPool struct. 
+In the insertTuple method, if the page is not already in the buffer, we need to initialize a pageLock for the page and add 
+it to pageMutexes; we also need to add the page key to our dirtyPages map. This logic is also in the GetPage method in 
+buffer_pool. We also had to add a mutex to the HeapFile struct so that shared variables such as the number of pages 
+numPages are being updated correctly; this mutex is acquired it at the beginning of insertTuple and deleteTuple and 
+released it at the end of insertTuple and deleteTuple
+
+Describe any design decisions you made, including your choice of deadlock detection.
+
+For deadlock detection, we chose to abort the incoming transaction if doing the transaction resulted in a deadlock with 
+other transactions that were already running. To do this, we kept a dependency graph dependencyGraph which mapped 
+transaction IDs to a list of transaction IDs that they depend on and then updated the dependencyGraph and checked for 
+cycles using BFS whenever a transaction with a write permission came in. See the previous question for a more in-depth 
+description. We chose to do this over other methods because it would not undo a lot of work even in the worst case 
+scenario; if we chose to abort all the transactions the incoming transaction was dependent on, we would have to undo and 
+redo a lot of work, and if we chose to have a global ordering, we could abort potentially ok transactions. With our method, 
+the user would just need to retry the deadlocked transaction again. 
+
+Describe any missing or incomplete elements of your code.
+
+We don't think we're missing anything -- however, there might be benign races that the test cases do not catch. 
+We'll see for the hidden test cases! 
+
+Describe how long you spent on the lab, and whether there was anything you found particularly difficult or confusing.
+
+We spent 12 hours on this lab. This lab was a little confusing because a lot of the handout was more open-ended and 
+depended on your previous implementations in labs 1 and 2. The deadlock detection dependency graph was cool to do! 

@@ -1,0 +1,75 @@
+Collaborator: Victoria Gao
+
+Filter: 
+We made a struct containing op, left, right, and child. To filter, we kept on calling the child iterator to get the 
+next tuple and then returned it if it satisfied the predicate (this was checked with EvalPred on the filter operator f.op). 
+
+Join: 
+We made a struct containing leftField, rightField, left, right, and maxBufferSize. To join, we used a nested loop which 
+iterated over the left iterator for the outer loop and iterated over the right iterator for the inner loop. Within the 
+nested loop, if the left iterator's tuple's value is equal to the right iterator's tuple's value, then we return the 
+union of the two tuples. To deal with the double for loop in Go, every time the right iterator returns null (reached the 
+end of the right iterator), we need to go to the next left tuple in the left iterator and restart from the beginning in 
+the right iterator. 
+
+Agg State: 
+For the operations (COUNT, SUM, AVG, MIN, MAX), we made a struct with alias, expr, and the designated statistics; AVG 
+needed to keep track of the total and the number of elements to keep a running average. Every time we add a tuple, we 
+would call intAggGetter or stringAggGetter to get the value of the tuple, and then update the respective running 
+statistic. To finalize the statistic, we would return a new tuple with the tuple descriptor containing the alias name and 
+type along with the designated statistic in an IntField or StringField. 
+
+Agg Op: 
+We made a struct containing groupByFields, newAggState, and child. The tuple descriptor combined all of the descriptors 
+for the various aggregation states; if it had a group by, it would also include the group by fields at the start of the 
+descriptor. These were put together through the merge method for TupleDesc. To extract group by key tuple, we iterated 
+over groupByFields and evaluated over all the expressions to get the field to then put into the fields attribute of the 
+returned tuple. The returned tuple also used the tuple descriptor method and contained the Rid of the tuple. To add the 
+tuple to the group aggregate state, we used the respective AddTuple method for the aggregate state that we coded in the 
+Agg State section. Finally, to get the finalized tuple iterator, we extract group by key tuple and use this to index into 
+aggState to get the aggregation states. We then iterate over these aggregation states to finalize them and join them all 
+into the returned tuple; the tuple descriptor is made from combining the descriptors for all of these aggregation states. 
+
+Insert: 
+We made a struct with insertFile and child. We continuously call the child iterator for the next tuple, and then take this 
+tuple to insert into insertFile; we also increment the count for a successful insertion. This count is then put into a 
+tuple to return. 
+
+Delete: 
+We made a struct with deleteFile and child. We continuously call the child iterator for the next tuple, and then take this 
+tuple to delete from deleteFile; we also increment the count for a successful deletion. This count is then put into a 
+tuple to return. 
+
+Project: 
+We made a struct with selectFields, outputNames, child, distinct (boolean), and encounteredTuples (maps any to bool). We 
+continuously call the child iterator to get the next tuple and iterate over the selectFields to extract the designated 
+values from the tuple to put into a new tuple outputTuple. If we want distinct tuples, we also check if outputTuple's 
+key (with the method tupleKey()) is in the encounteredTuples map. If it is, we continue on to the next tuple; otherwise, 
+we map outputTuple's key to true and return the tuple. If we do not want distinct tuples, we can automatically return 
+outputTuple. 
+
+Order By: 
+We made a struct with orderBy, child, and ascending. For ordering, we made a multiSorter struct, which contains tuples 
+(list of tuples) and less (which is an array of lessFunc); lessFunc takes in two tuples and returns a boolean. multiSorter 
+has a Sort method (which calls the sort method from the sort library), an OrderedBy method (which returns a multiSorter 
+with the passed in list of lessFunc as its less attribute), Len (which returns the length of tuples), Swap (which switches 
+the tuples at index i and j), and Less (which returns whether the tuple at i is less than the tuple at j by iterating 
+over all the lessFunc in less). In the iterator method for order by, we make a list of all the tuples (allTuples) from the 
+child iterator. We then iterate over all the fields to order by in orderBy. If we want ascending, we create a sort 
+function that takes in tuples t1 and t2; we extract the values for the field we are currently on in orderBy and compare 
+with LtOp for EvalPred; if we do not want ascending, we instead compare with GtOp for EvalPred. This sort function is 
+appended to a list of sort functions that we then pass to the OrderedBy method to get a multiSorter instance. With this 
+instance, we can now call the Sort method on allTuples. Finally, the function we return iterates through the allTuples 
+and returns the tuples one by one. 
+
+Limit: 
+We made a struct with child and limitTups. Outside of the iterator function, we keep a count of how many tuples we have 
+returned (curr). If curr is less than limitTups's value, we increment curr and return the next tuple if there is any. If 
+curr is equal to limitTups's value, we return nil as we have reached the designated limit and should not return any more 
+tuples. 
+
+So far, we're passing all the test cases except for the optional extra credit time-constrainted join; we're also missing 
+the TID concurrencies implementation. 
+
+We spent 8 hours on this lab. This lab was a lot easier to understand than the first one, but debugging in Go is still 
+difficult and there were a lot of functions to read through and understand. 
