@@ -170,7 +170,6 @@ func (bp *BufferPool) BeginTransaction(tid TransactionID) error {
 		return fmt.Errorf("transaction is already running")
 	}
 
-	bp.concurrentAccessRecord[tid] = make(map[TransactionID]map[any]RWPerm)
 	bp.runningTransactions[tid] = ReadPhase
 	bp.concurrentAccessRecord[tid] = make(map[TransactionID]map[any]RWPerm)
 	bp.transactionPages[tid] = make(map[any]Page)

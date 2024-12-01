@@ -370,27 +370,124 @@ func TestTransactionFiveThreads(t *testing.T) {
 	validateTransactions(t, 5)
 }
 
+func evalTransactions(t *testing.T, threads int) {
+	bp, hf, _, _, _, _ := transactionTestSetUpVarLen(t, 1, 1)
+
+	var startWg, readyWg sync.WaitGroup
+	startChan := make(chan struct{})
+
+	// sleep for an increasingly long time after deadlocks. this backoff helps avoid starvation
+	nDeadlocks := 0
+	var nDeadlocksMutex sync.Mutex
+	sleepAfterDeadlock := func(thrId int, err error) {
+		nDeadlocksMutex.Lock()
+		nDeadlocks++
+		t.Logf("thread %d operation failed: %v deadlock #%v", thrId, err, nDeadlocks)
+		sleepTime := time.Duration(rand.Intn(int(nDeadlocks) + 1))
+		nDeadlocksMutex.Unlock()
+		time.Sleep(sleepTime * time.Millisecond)
+	}
+
+	incrementer := func(thrId int) {
+		// Signal that this goroutine is ready
+		readyWg.Done()
+
+		// Wait for the signal to start
+		<-startChan
+
+		for tid := TransactionID(0); ; bp.AbortTransaction(tid) {
+			tid = NewTID()
+			bp.BeginTransaction(tid)
+			iter1, err := hf.Iterator(tid)
+			if err != nil {
+				continue
+			}
+
+			readTup, err := iter1()
+			if err != nil {
+				sleepAfterDeadlock(thrId, err)
+				continue
+			}
+
+			var writeTup = Tuple{
+				Desc: readTup.Desc,
+				Fields: []DBValue{
+					readTup.Fields[0],
+					IntField{readTup.Fields[1].(IntField).Value + 1},
+				}}
+
+			dop := NewDeleteOp(hf, hf)
+			iterDel, err := dop.Iterator(tid)
+			if err != nil {
+				continue
+			}
+			delCnt, err := iterDel()
+			if err != nil {
+				sleepAfterDeadlock(thrId, err)
+				continue
+			}
+			if delCnt.Fields[0].(IntField).Value != 1 {
+				t.Errorf("Delete Op should return 1")
+			}
+			iop := NewInsertOp(hf, &Singleton{writeTup, false})
+			iterIns, err := iop.Iterator(tid)
+			if err != nil {
+				continue
+			}
+			insCnt, err := iterIns()
+			if err != nil {
+				sleepAfterDeadlock(thrId, err)
+				continue
+			}
+
+			if insCnt.Fields[0].(IntField).Value != 1 {
+				t.Errorf("Insert Op should return 1")
+			}
+
+			bp.CommitTransaction(tid)
+			break //exit on success, so we don't do terminal abort
+		}
+		startWg.Done()
+	}
+
+	// Prepare goroutines
+	readyWg.Add(threads)
+	startWg.Add(threads)
+	for i := 0; i < threads; i++ {
+		go incrementer(i)
+	}
+
+	// Wait for all goroutines to be ready
+	readyWg.Wait()
+
+	// Start all goroutines at once
+	close(startChan)
+
+	// Wait for all goroutines to finish
+	startWg.Wait()
+}
+
 // Results:
 // OCC - 10000: 1.321s, 15000: 2.825s, 20000: 4.685s, 25000: 7.616s, 30000: 11.300s
 // 2PL - 10000: 5.695s, 15000: 7.823s, 20000: 15.074s, 25000: 17.451s, 30000: 26.546s
 func TestTransaction10000(t *testing.T) {
-	validateTransactions(t, 10000)
+	evalTransactions(t, 10000)
 }
 
 func TestTransaction15000(t *testing.T) {
-	validateTransactions(t, 15000)
+	evalTransactions(t, 15000)
 }
 
 func TestTransaction20000(t *testing.T) {
-	validateTransactions(t, 20000)
+	evalTransactions(t, 20000)
 }
 
 func TestTransaction25000(t *testing.T) {
-	validateTransactions(t, 25000)
+	evalTransactions(t, 25000)
 }
 
 func TestTransaction30000(t *testing.T) {
-	validateTransactions(t, 30000)
+	evalTransactions(t, 30000)
 }
 
 func TestTransactionAllDirtyFails(t *testing.T) {
