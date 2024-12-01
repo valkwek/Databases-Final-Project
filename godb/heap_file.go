@@ -48,6 +48,7 @@ func NewHeapFile(fromFile string, td *TupleDesc, bp *BufferPool) (*HeapFile, err
 		backingFile: fromFile,
 		Desc:        *td,
 		numPages:    int(fileSize) / PageSize,
+		mutex:       sync.Mutex{},
 	}, nil
 }
 
@@ -73,6 +74,7 @@ func (f *HeapFile) NumPages() int {
 func (f *HeapFile) LoadFromCSV(file *os.File, hasHeader bool, sep string, skipLastField bool) error {
 	scanner := bufio.NewScanner(file)
 	cnt := 0
+	tid := TransactionID(0)
 	for scanner.Scan() {
 		line := scanner.Text()
 		fields := strings.Split(line, sep)
@@ -110,7 +112,7 @@ func (f *HeapFile) LoadFromCSV(file *os.File, hasHeader bool, sep string, skipLa
 			}
 		}
 		newT := Tuple{*f.Descriptor(), newFields, nil}
-		tid := NewTID()
+		// tid := NewTid()
 		bp := f.bufPool
 		f.insertTuple(&newT, tid)
 
@@ -119,6 +121,11 @@ func (f *HeapFile) LoadFromCSV(file *os.File, hasHeader bool, sep string, skipLa
 		bp.FlushAllPages()
 
 	}
+	delete(f.bufPool.transactionPages, tid)
+	delete(f.bufPool.concurrentAccessRecord, tid)
+	delete(f.bufPool.dirtyPages, tid)
+	delete(f.bufPool.sharedPages, tid)
+	delete(f.bufPool.runningTransactions, tid)
 	return nil
 }
 
@@ -217,15 +224,20 @@ func (f *HeapFile) insertTuple(t *Tuple, tid TransactionID) error {
 		}
 	}
 	f.bufPool.pages[f.pageKey(newPageNo)] = newHeapPage
-	_, exists := f.bufPool.pageMutexes[f.pageKey(newPageNo)]
-	if !exists {
-		f.bufPool.pageMutexes[f.pageKey(newPageNo)] = &pageLock{
-			sharedLocks:   0,
-			exclusiveLock: 1,
-			mutex:         sync.Mutex{},
-			permittedTids: []TransactionID{tid},
-		}
+	// _, exists := f.bufPool.pageMutexes[f.pageKey(newPageNo)]
+	// if !exists {
+	//  f.bufPool.pageMutexes[f.pageKey(newPageNo)] = &pageLock{
+	//      sharedLocks:   0,
+	//      exclusiveLock: 1,
+	//      mutex:         sync.Mutex{},
+	//      permittedTids: []TransactionID{tid},
+	//  }
+	// }
+	// f.bufPool.dirtyPages[tid] = append(f.bufPool.dirtyPages[tid], f.pageKey(newPageNo))
+	if f.bufPool.transactionPages[tid] == nil {
+		f.bufPool.transactionPages[tid] = make(map[any]Page)
 	}
+	f.bufPool.transactionPages[tid][f.pageKey(newPageNo)] = newHeapPage
 	f.bufPool.dirtyPages[tid] = append(f.bufPool.dirtyPages[tid], f.pageKey(newPageNo))
 	return nil
 }
