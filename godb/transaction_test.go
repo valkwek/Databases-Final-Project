@@ -370,6 +370,29 @@ func TestTransactionFiveThreads(t *testing.T) {
 	validateTransactions(t, 5)
 }
 
+// Results:
+// OCC - 10000: 1.321s, 15000: 2.825s, 20000: 4.685s, 25000: 7.616s, 30000: 11.300s
+// 2PL - 10000: 5.695s, 15000: 7.823s, 20000: 15.074s, 25000: 17.451s, 30000: 26.546s
+func TestTransaction10000(t *testing.T) {
+	validateTransactions(t, 10000)
+}
+
+func TestTransaction15000(t *testing.T) {
+	validateTransactions(t, 15000)
+}
+
+func TestTransaction20000(t *testing.T) {
+	validateTransactions(t, 20000)
+}
+
+func TestTransaction25000(t *testing.T) {
+	validateTransactions(t, 25000)
+}
+
+func TestTransaction30000(t *testing.T) {
+	validateTransactions(t, 30000)
+}
+
 func TestTransactionAllDirtyFails(t *testing.T) {
 	if os.Getenv("LAB") == "5" {
 		t.Skip("Test is valid up through Lab 4. Skipping.")
