@@ -225,3 +225,11 @@ func TestValidateReadRead(t *testing.T) {
 		t.Errorf("Commit 1: %t, Commit 2: %t", correctCommit1, correctCommit2)
 	}
 }
+
+/**
+* Stress testing for 8 threads
+ */
+
+func TestTransactionEightThreads(t *testing.T) {
+	validateTransactions(t, 8)
+}
